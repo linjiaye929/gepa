@@ -101,7 +101,7 @@ class ChromaVectorStore(VectorStoreInterface):
         Convert generic filters to ChromaDB where clause format.
 
         Generic format: {"key": "value", "key2": {"$gt": 5}}
-        ChromaDB format: {"key": {"$eq": "value"}, "key2": {"$gt": 5}}
+        ChromaDB format: {"$and": [{"key": {"$eq": "value"}}, {"key2": {"$gt": 5}}]}
         """
         chroma_filters = {}
 
@@ -112,6 +112,9 @@ class ChromaVectorStore(VectorStoreInterface):
             else:
                 # Convert to equality operator
                 chroma_filters[key] = {"$eq": value}
+
+        if len(chroma_filters) > 1:
+            return {"$and": [{key: value} for key, value in chroma_filters.items()]}
 
         return chroma_filters
 
