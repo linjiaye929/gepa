@@ -2,6 +2,7 @@
 # https://github.com/gepa-ai/gepa
 
 from typing import Any
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from gepa.adapters.generic_rag_adapter.vector_store_interface import VectorStoreInterface
 
@@ -99,20 +100,30 @@ class QdrantVectorStore(VectorStoreInterface):
         embeddings: list[list[float]],
         ids: list[str] | None = None,
     ) -> list[str]:
-        """Add documents with their embeddings to the collection."""
+        """Add documents, replacing points previously written with the same IDs.
+
+        Omitted IDs are generated uniquely. Caller IDs are mapped to stable UUIDs
+        and retained in the payload for search results and deletion.
+
+        Collections written by older versions used batch-local integer point IDs.
+        Those points remain searchable and deletable, but are not migrated here:
+        re-adding their logical IDs can create duplicates. To replace such points,
+        callers must explicitly delete them by their original IDs before adding.
+        """
         if len(documents) != len(embeddings):
             raise ValueError("Number of documents must match number of embeddings")
 
-        # Generate IDs if not provided - use integers for Qdrant compatibility
         if ids is None:
-            ids = list(range(len(documents)))
-            string_ids = [f"doc_{i}" for i in range(len(documents))]
+            string_ids = [str(uuid4()) for _ in documents]
         else:
             if len(ids) != len(documents):
                 raise ValueError("Number of IDs must match number of documents")
-            # Convert string IDs to integers for Qdrant, but keep original strings in payload
             string_ids = ids
-            ids = list(range(len(documents)))
+
+        # Map exact logical IDs into a stable GEPA-specific UUID namespace.
+        # Batch positions cannot identify points across successive ingestions.
+        namespace = uuid5(NAMESPACE_URL, "https://github.com/gepa-ai/gepa/qdrant")
+        point_ids = [str(uuid5(namespace, doc_id)) for doc_id in string_ids]
 
         # Create Qdrant points
         points = []
@@ -122,7 +133,7 @@ class QdrantVectorStore(VectorStoreInterface):
             payload["original_id"] = string_ids[i]
 
             point = self.models.PointStruct(
-                id=ids[i],  # Use integer ID for Qdrant
+                id=point_ids[i],
                 vector=embedding,
                 payload=payload,
             )
